@@ -12,17 +12,21 @@
 //done for 4-bit conversion, but scaled data will be written out as 8-bit
 #define DEBUG 0
 
+#define GB 1073741824
+#define KB 1024
+
 int main(int argc, char *argv[])
 {
     int numfiles, ii, numrows, rownum, ichan, itsamp, datidx;
-    int spec_per_row, status;
+    int spec_per_row, status, maxrows;
+    unsigned long int maxfilesize;
     float offset, scale, datum, packdatum, maxval, fulltsubint;
     float *datachunk;
     FILE **infiles;
     struct psrfits pfin, pfout;
     Cmdline *cmd;
     fitsfile *infits, *outfits;
-    char outfilename[128], tform[8];
+    char outfilename[128], templatename[128], tform[8];
     char *pc1, *pc2;
     int first = 1, dummy = 0, nclipped;
     short int *inrowdata;
@@ -37,6 +41,12 @@ int main(int argc, char *argv[])
     cmd = parseCmdline(argc, argv);
     numfiles = cmd->argc;
     infiles = (FILE **) malloc(numfiles * sizeof(FILE *));
+
+    //Set the max. total size (in bytes) of all rows in an output file,
+    //leaving some room for PSRFITS header
+    maxfilesize = (unsigned long int)(cmd->numgb * GB);
+    maxfilesize = maxfilesize - 1000*KB;
+    //fprintf(stderr,"cmd->numgb: %f maxfilesize: %ld\n",cmd->numgb,maxfilesize);
 
 #ifdef DEBUG
     showOptionValues();
@@ -90,103 +100,129 @@ int main(int argc, char *argv[])
 
         infits = pfin.fptr;
         spec_per_row = pfin.hdr.nsblk;
-        numrows = pfin.rows_per_file;
+	fits_read_key(infits, TINT, "NAXIS2", &dummy, NULL, &status);
+	pfin.tot_rows = dummy;
+        numrows = dummy;
 
-        if (ii == 0) {
+	//If dealing with 1st input file, create output template
+	if (ii == 0) {
+	  sprintf(templatename, "%s.template.fits",cmd->outfile);
+	  fits_create_file(&outfits, templatename, &status);
+	  //fprintf(stderr,"pfin.basefilename: %s\n", pfin.basefilename);
+	  //fprintf(stderr,"status: %d\n", status);
+	  
+	  //Instead of copying HDUs one by one, can move to the SUBINT
+	  //HDU, and copy all the HDUs preceding it
+	  fits_movnam_hdu(infits, BINARY_TBL, "SUBINT", 0, &status);
+	  fits_copy_file(infits, outfits, 1, 0, 0, &status);
+	  
+	  //Copy the SUBINT table header
+	  fits_copy_header(infits, outfits, &status);
+	  fits_flush_buffer(outfits, 0, &status);
+	  
+	  //Set NAXIS2 in the output SUBINT table to 0 b/c we haven't 
+	  //written any rows yet
+	  dummy = 0;
+	  fits_update_key(outfits, TINT, "NAXIS2", &dummy, NULL, &status);
+	  
+	  //Edit the NBITS key
+	  if (DEBUG) {
+	    dummy = 8;
+	    fits_update_key(outfits, TINT, "NBITS", &dummy, NULL, &status);
+	  } else {
+	    fits_update_key(outfits, TINT, "NBITS", &(cmd->numbits), NULL,
+			    &status);
+	  }
+	  
+	  //Edit the TFORM17 column: # of data bytes per row 
+	  //fits_get_colnum(outfits,1,"DATA",&dummy,&status);
+	  if (DEBUG)
+	    sprintf(tform, "%dB",
+		    pfin.hdr.nsblk * pfin.hdr.nchan * pfin.hdr.npol);
+	  else
+	    sprintf(tform, "%dB", pfin.hdr.nsblk * pfin.hdr.nchan *
+		    pfin.hdr.npol * cmd->numbits / 8);
+	  
+	  fits_update_key(outfits, TSTRING, "TTYPE17", "DATA", NULL, &status);
+	  fits_update_key(outfits, TSTRING, "TFORM17", tform, NULL, &status);
+	  
+	  //Edit NAXIS1: row width in bytes
+	  fits_read_key(outfits, TINT, "NAXIS1", &dummy, NULL, &status);
+	  if (DEBUG) {
+	    dummy = dummy - pfin.hdr.nsblk * pfin.hdr.nchan *
+	      pfin.hdr.npol * (pfin.hdr.nbits - 8) / 8;
+	  } else {
+	    dummy = dummy - pfin.hdr.nsblk * pfin.hdr.nchan *
+	      pfin.hdr.npol * (pfin.hdr.nbits - cmd->numbits) / 8;
+	  }
+	  fits_update_key(outfits, TINT, "NAXIS1", &dummy, NULL, &status);
+	  
+	  //Set the max # of rows per file, based on the requested 
+	  //output file size
+	  maxrows = maxfilesize / dummy;
+	  //fprintf(stderr,"maxrows: %d\n",maxrows);
 
-            // Create the output PSRFITS file
-            sprintf(outfilename, "%s.%0*d.fits", cmd->outfile, pfin.fnamedigits,
-                    pfin.filenum);
-            fits_create_file(&outfits, outfilename, &status);
+	  fits_close_file(outfits, &status);
+	  
+	  rownum = 0;
+	}
+	
+        while (psrfits_read_subint(&pfin, first) == 0) {
+	  fprintf(stderr, "Working on row %d\n", ++rownum);
+	  
+	  //If this is the first row, store the length of a full subint
+	  if (ii == 0 && rownum == 1)
+	    fulltsubint = pfin.sub.tsubint;
 
-            //Instead of copying HDUs one by one, can move to the SUBINT
-            //HDU, and copy all the HDUs preceding it
-            fits_movnam_hdu(infits, BINARY_TBL, "SUBINT", 0, &status);
-            fits_copy_file(infits, outfits, 1, 0, 0, &status);
-
-            //Copy the SUBINT table header
-            fits_copy_header(infits, outfits, &status);
-            fits_flush_buffer(outfits, 0, &status);
-
-            //Set NAXIS2 in the output SUBINT table to 0 b/c we haven't 
-            //written any rows yet
-            dummy = 0;
-            fits_update_key(outfits, TINT, "NAXIS2", &dummy, NULL, &status);
-
-            //Edit the NBITS key
-            if (DEBUG) {
-                dummy = 8;
-                fits_update_key(outfits, TINT, "NBITS", &dummy, NULL, &status);
-            } else {
-                fits_update_key(outfits, TINT, "NBITS", &(cmd->numbits), NULL,
-                                &status);
-            }
-
-            //Edit the TFORM17 column: # of data bytes per row 
-            //fits_get_colnum(outfits,1,"DATA",&dummy,&status);
-            if (DEBUG)
-                sprintf(tform, "%dB",
-                        pfin.hdr.nsblk * pfin.hdr.nchan * pfin.hdr.npol);
-            else
-                sprintf(tform, "%dB", pfin.hdr.nsblk * pfin.hdr.nchan *
-                        pfin.hdr.npol * cmd->numbits / 8);
-
-            fits_update_key(outfits, TSTRING, "TTYPE17", "DATA", NULL, &status);
-            fits_update_key(outfits, TSTRING, "TFORM17", tform, NULL, &status);
-
-            //Edit NAXIS1: row width in bytes
-            fits_read_key(outfits, TINT, "NAXIS1", &dummy, NULL, &status);
-            if (DEBUG) {
-                dummy = dummy - pfin.hdr.nsblk * pfin.hdr.nchan *
-                    pfin.hdr.npol * (pfin.hdr.nbits - 8) / 8;
-            } else {
-                dummy = dummy - pfin.hdr.nsblk * pfin.hdr.nchan *
-                    pfin.hdr.npol * (pfin.hdr.nbits - cmd->numbits) / 8;
-            }
-            fits_update_key(outfits, TINT, "NAXIS1", &dummy, NULL, &status);
-            fits_close_file(outfits, &status);
-
-            //Now reopen the file so that the pfout structure is initialized
-            pfout.status = 0;
-            pfout.initialized = 0;
-            pfout.fnamedigits = pfin.fnamedigits;
-            pfout.filenum = pfin.filenum;
-            sprintf(pfout.basefilename, "%s.", cmd->outfile);
-
+	  //If this is the last row and it's partial, drop it.
+	  //(It's pfin.rownum-1 below because the rownum member of the psrfits struct seems to be intended to indicate at the *start* of what row we are, i.e. a row that has not yet been read. In contrast, pfout.rownum indicates how many rows have been written, i.e. at the *end* of what row we are in the output.)
+	  
+	  if (pfin.rownum-1 == numrows && fabs(pfin.sub.tsubint - fulltsubint) > pfin.hdr.dt) {
+	    fprintf(stderr,
+		    "Dropping partial row of length %f s (full row is %f s)\n",
+		    pfin.sub.tsubint, fulltsubint);
+	    break;
+	  }
+	  
+	  //If we just read in the 1st row, or if we already wrote the last row in the current output file, create a new output file
+	  if ((ii == 0 && rownum == 1) || pfout.rownum == maxrows) {
+	    //Create new output file from the template
+	    pfout.fnamedigits = pfin.fnamedigits;
+	    if(ii == 0)
+	      pfout.filenum = pfin.filenum;
+	    else
+	      pfout.filenum++;
+	    
+	    sprintf(outfilename, "%s.%0*d.fits", cmd->outfile, pfout.fnamedigits, pfout.filenum);
+	    fits_create_template(&outfits, outfilename, templatename, &status);
+	    //fprintf(stderr,"After fits_create_template, status: %d\n",status);
+	    fits_close_file(outfits, &status);
+	    
+	    //Now reopen the file so that the pfout structure is initialized
+	    pfout.status = 0;
+	    pfout.initialized = 0;
+	    
+	    sprintf(pfout.basefilename, "%s.", cmd->outfile);
+	    
             if (psrfits_open(&pfout, READWRITE) != 0) {
-                fprintf(stderr, "error opening file\n");
-                fits_report_error(stderr, pfout.status);
-                exit(1);
+	      fprintf(stderr, "error opening file\n");
+	      fits_report_error(stderr, pfout.status);
+	      exit(1);
             }
             outfits = pfout.fptr;
             maxval = pow(2, cmd->numbits) - 1;
-            fprintf(stderr, "maxval: %f\n", maxval);
-
+	    pfout.rows_per_file = maxrows;
+	    
+            //fprintf(stderr, "maxval: %f\n", maxval);
+	    //fprintf(stderr, "pfout.rows_per_file: %d\n",pfout.rows_per_file);
+	    
             //These are not initialized in psrfits_open but are needed 
             //in psrfits_write_subint (not obvious what are the corresponding 
             //fields in any of the psrfits table headers)
             pfout.hdr.ds_freq_fact = 1;
             pfout.hdr.ds_time_fact = 1;
+	  }
 
-            rownum = 0;
-        }
-
-
-        while (psrfits_read_subint(&pfin, first) == 0) {
-            fprintf(stderr, "Working on row %d\n", ++rownum);
-
-            //If this is the first row, store the length of a full subint
-            if (rownum == 1)
-                fulltsubint = pfin.sub.tsubint;
-
-            //If this is the last row for the observation, and it's partial,
-            //drop it.
-            if (rownum == numrows && pfin.sub.tsubint != fulltsubint) {
-                fprintf(stderr,
-                        "Dropping partial row of length %f s (full row is %f s)\n",
-                        pfin.sub.tsubint, fulltsubint);
-                break;
-            }
             //Copy the subint struct from pfin to pfout, but correct 
             //elements that are not the same 
             pfout.sub = pfin.sub;       //this copies array pointers too
@@ -283,6 +319,10 @@ int main(int argc, char *argv[])
                 printf("\nError (%d) writing PSRFITS...\n\n", status);
                 break;
             }
+
+	    //If current output file has reached the max # of rows, close it
+	    if (pfout.rownum == maxrows)
+	      fits_close_file(outfits, &status);
         }
 
         //Close the files 

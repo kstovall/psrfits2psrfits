@@ -11,7 +11,7 @@
 .\" it edited by clig, remove the respective pair of cligPart-lines.
 .\"
 .\" cligPart TITLE
-.TH "psrfits2psrfits" 1 "08Apr10" "Clig-manuals" "Programmer's Manual"
+.TH "psrfits2psrfits" 1 "18May10" "Clig-manuals" "Programmer's Manual"
 .\" cligPart TITLE end
 
 .\" cligPart NAME
@@ -24,7 +24,7 @@ psrfits2psrfits \- Converts 16-bit PSRFITS search-mode data to 8 or 4-bit PSRFIT
 .B psrfits2psrfits
 [-b numbits]
 -o outfile
-[-i]
+[-g numgb]
 infiles ...
 .\" cligPart SYNOPSIS end
 
@@ -40,8 +40,12 @@ Default: `8'
 Base name of the output psrfits file,
 .br
 1 String value
-.IP -i
-Invert the band.
+.IP -g
+The output file size in GB,
+.br
+1 Float value between 0.1 and 100.0.
+.br
+Default: `10.0'
 .IP infiles
 Input PSRFITS file names (in time order).
 .\" cligPart OPTIONS end

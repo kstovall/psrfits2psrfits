@@ -15,7 +15,8 @@ CFLAGS = -I$(OTHERINCLUDE) -DSRCDIR=\"$(SRCDIR)\"\
 CLINKFLAGS = $(CFLAGS)
 
 # When modifying the CLIG files, the is the location of the clig binary
-CLIG = /usr/bin/clig
+#CLIG = /usr/bin/clig
+CLIG =/home/deneva/local/bin64/clig 
 # Rules for CLIG generated files
 %_cmd.c : %_cmd.cli
 	$(CLIG) -o $*_cmd -d $<

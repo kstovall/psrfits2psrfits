@@ -17,8 +17,10 @@ typedef struct s_Cmdline {
   char outfileP;
   char* outfile;
   int outfileC;
-  /***** -i: Invert the band */
-  char invertP;
+  /***** -g: The output file size in GB */
+  char numgbP;
+  float numgb;
+  int numgbC;
   /***** uninterpreted command line parameters */
   int argc;
   /*@null*/char **argv;

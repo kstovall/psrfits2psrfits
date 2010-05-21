@@ -10,11 +10,13 @@ Commandline full_cmd_line
 
 # Options (in order you want them to appear)
 
-Int 	-b 	numbits  {The number of bits in each output sample (4 or 8)} \
+Int 	-b 	numbits {The number of bits in each output sample (4 or 8)} \
 			-r 4 8  -d 8
 String	-o	outfile {Base name of the output psrfits file} \
 			-m
-Flag   	-i	invert	{Invert the band}
+Float	-g	numgb	{The output file size in GB} \
+			-r 0.1 100.0 -d 10.0
+# Flag   	-i	invert	{Invert the band}
 
 # Rest of command line:
 
