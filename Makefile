@@ -1,17 +1,18 @@
 # Other include directory (for CFITSIO, libsla, which is in PRESTO)
-OTHERINCLUDE = /usr/include/cfitsio 
-# Other link directory (for CFITSIO, libsla, which is in PRESTO)
-OTHERLINK = -L/usr/local/lib -lcfitsio -L$(PRESTO)/lib -lsla 
+OTHERINCLUDE = -I/usr/include/cfitsio -I/home.local/phil/svn/pdev/include
+# Other link directory (for CFITSIO)
+OTHERLINK = -L/usr/local/lib -L/home.local/phil/svn/pdev/libs -lcfitsio
 
 # Source directory
 SRCDIR = $(shell pwd)
 
 # Which C compiler
 CC = gcc
-CFLAGS = -I$(OTHERINCLUDE) -DSRCDIR=\"$(SRCDIR)\"\
+CFLAGS = $(OTHERINCLUDE) -DSRCDIR=\"$(SRCDIR)\"\
 	-D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64\
 	-g -Wall -W -std=c99 -O
-#	-O3 -Wall -W
+#	-O3 -Wall -W -g
+
 CLINKFLAGS = $(CFLAGS)
 
 # When modifying the CLIG files, the is the location of the clig binary
@@ -20,8 +21,9 @@ CLIG =/home/deneva/local/bin64/clig
 # Rules for CLIG generated files
 %_cmd.c : %_cmd.cli
 	$(CLIG) -o $*_cmd -d $<
+	cp $*_cmd.c ..
 
-OBJS1 = vectors.o sla.o write_psrfits.o rescale.o read_psrfits.o
+OBJS1 = vectors.o write_psrfits.o rescale.o read_psrfits.o
 
 psrfits2psrfits: psrfits2psrfits.o psrfits2psrfits_cmd.o $(OBJS1)
 	$(CC) $(CLINKFLAGS) -o $@ psrfits2psrfits.o psrfits2psrfits_cmd.o $(OBJS1) -lm $(OTHERLINK)

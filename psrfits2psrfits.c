@@ -3,6 +3,7 @@
 #include <string.h>
 #include <math.h>
 #include <ctype.h>
+#include <time.h>
 #include "vectors.h"
 #include "psrfits2psrfits_cmd.h"
 #include "psrfits.h"
@@ -11,6 +12,12 @@
 //If this flag is 1, and 4-bit conversion is requested, the scaling will be
 //done for 4-bit conversion, but scaled data will be written out as 8-bit
 #define DEBUG 0
+
+//If this flag is 1, offsets & scales are written to a text file
+#define DUMP 0
+
+//If this flag is 1, various parts of the code will get timed
+#define DOTIME 0
 
 #define GB 1073741824
 #define KB 1024
@@ -22,15 +29,18 @@ int main(int argc, char *argv[])
     unsigned long int maxfilesize;
     float offset, scale, datum, packdatum, maxval, fulltsubint;
     float *datachunk;
-    FILE **infiles;
+    FILE **infiles, *scaledump, *offsetdump;
     struct psrfits pfin, pfout;
     Cmdline *cmd;
     fitsfile *infits, *outfits;
-    char outfilename[128], templatename[128], tform[8];
+    char outfilename[128], templatename[128], tform[8], scalename[128], offsetname[128];
     char *pc1, *pc2;
     int first = 1, dummy = 0, nclipped;
     short int *inrowdata;
     unsigned char *outrowdata;
+    time_t t0, t1, t2;
+
+    t0 = time(NULL);
 
     if (argc == 1) {
         Program = argv[0];
@@ -51,6 +61,11 @@ int main(int argc, char *argv[])
 #ifdef DEBUG
     showOptionValues();
 #endif
+
+    if (DUMP) {
+      scaledump = fopen("scale.dump", "w");
+      offsetdump = fopen("offset.dump","w");
+    }
 
     printf("\n         PSRFITS 16-bit to 4-bit Conversion Code\n");
     printf("         by J. Deneva, S. Ransom, & S. Chatterjee\n\n");
@@ -103,6 +118,11 @@ int main(int argc, char *argv[])
 	fits_read_key(infits, TINT, "NAXIS2", &dummy, NULL, &status);
 	pfin.tot_rows = dummy;
         numrows = dummy;
+
+	if (DOTIME) {
+	  t1 = time(NULL);
+	  fprintf(stderr, "Initialization: %f s\n",t1-t0);
+	}
 
 	//If dealing with 1st input file, create output template
 	if (ii == 0) {
@@ -167,8 +187,13 @@ int main(int argc, char *argv[])
 	  rownum = 0;
 	}
 	
+	if (DOTIME) {
+	  t2 = time(NULL);
+	  fprintf(stderr, "Template: %f s\n",t2-t1);
+	}
+
         while (psrfits_read_subint(&pfin, first) == 0) {
-	  fprintf(stderr, "Working on row %d\n", ++rownum);
+	  fprintf(stderr, "\nWorking on row %d\n", ++rownum);
 	  
 	  //If this is the first row, store the length of a full subint
 	  if (ii == 0 && rownum == 1)
@@ -243,6 +268,9 @@ int main(int argc, char *argv[])
             inrowdata = (short int *) pfin.sub.data;
             nclipped = 0;
 
+	    if (DOTIME)
+	      t1 = time(NULL);
+
             // Loop over all the channels:
             for (ichan = 0; ichan < pfout.hdr.nchan * pfout.hdr.npol; ichan++) {
                 // Populate datachunk[] by picking out all time samples for ichan
@@ -259,6 +287,12 @@ int main(int argc, char *argv[])
                     printf("Rescale routine failed!\n");
                     return (-1);
                 }
+
+		if (DUMP) {
+		  fprintf(scaledump, "%f ", scale);
+		  fprintf(offsetdump, "%f ", offset);
+		}
+
                 pfout.sub.dat_offsets[ichan] = offset;
                 pfout.sub.dat_scales[ichan] = scale;
 
@@ -279,7 +313,12 @@ int main(int argc, char *argv[])
 
                 }
                 // Now inrowdata[ichan] contains rescaled ints.
-            }
+            } //end loop over ichan
+
+	    if (DUMP) {
+	      fprintf(scaledump, "\n", scale);
+	      fprintf(offsetdump, "\n", offset);
+	    }
 
             // Then do the conversion and store the
             // results in pf.sub.data[] 
@@ -313,6 +352,11 @@ int main(int argc, char *argv[])
                     (float) nclipped / (pfout.hdr.nchan * pfout.hdr.npol *
                                         pfout.hdr.nsblk));
 
+	    if (DOTIME) {
+	      t2 = time(NULL);
+	      fprintf(stderr, "Conversion: %d s\n",t2-t1);
+	    }
+
             // Now write the row. 
             status = psrfits_write_subint(&pfout);
             if (status) {
@@ -323,10 +367,24 @@ int main(int argc, char *argv[])
 	    //If current output file has reached the max # of rows, close it
 	    if (pfout.rownum == maxrows)
 	      fits_close_file(outfits, &status);
+
+	    
+	    if (DOTIME) {
+	      t1 = time(NULL);
+	      fprintf(stderr, "Writing row: %d s\n",t1-t2);
+	      fprintf(stderr, "Read/write loop iteration total: %d s\n",t1-t0);
+	      t0 = t1;
+	    }
+
         }
 
         //Close the files 
         fits_close_file(infits, &status);
+    }
+
+    if(DUMP) {
+      fclose(scaledump);
+      fclose(offsetdump);
     }
 
     fits_close_file(outfits, &status);
