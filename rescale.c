@@ -17,12 +17,82 @@ static char rcsid[] = "$Id: rescale.c,v 1.5 2009/11/25 05:40:49 shami Exp $";
 
 #define VERBOSE 0
 
+int shortintcmp(const void *a, const void *b)
+{
+  /*
+  short int *da = (const short int *) a;
+  short int *db = (const short int *) b;
+  return (*da > *db) - (*da < *db);
+  */
+  
+  if (*((short int*)a) > *((short int*)b))
+    return 1;
+  else
+    return -1;
+
+}
+
+int rescale2(short int *datav, int ndata, int nbits, float *offset, float *scale)
+{
+
+    short int* datacopy;
+    float qlow, qhigh;
+    short int median,s1lo,s1hi;
+
+    datacopy = (short int *) malloc(ndata * sizeof(short int));
+    if (!datacopy) {
+        /* malloc apparently failed */
+        printf("Error! malloc failed?\n");
+        return (-1);
+    }
+
+    memcpy(datacopy, datav, ndata * sizeof(short int));
+    qsort(datacopy, ndata, sizeof(datav[0]), shortintcmp);
+
+    /* Now calculate median and percentiles */
+    median = datacopy[(int) (0.5 * ndata)];     // Ignore odd-even issue
+    s1lo = datacopy[(int) (0.1587 * ndata)];    // since we're approximating
+    s1hi = datacopy[(int) (0.8413 * ndata)];    // percentiles anyway.
+
+    qlow = (float)median - LSIGMA * (float)(median - s1lo);
+    qlow = (qlow < (float)datacopy[0]) ? (float)datacopy[0] : qlow;
+
+    qhigh = (float)median + USIGMA * (float)(s1hi - median);
+    qhigh = (qhigh > (float)datacopy[ndata - 1]) ? (float)datacopy[ndata - 1] : qhigh;
+
+#if(VERBOSE)
+    fprintf(stderr, "# Median = %.1f, 1 sigma = %.1f  %.1f, Clip at %.1f  %.1f\n",
+            median, s1lo, s1hi, qlow, qhigh);
+#endif
+
+    // X(qlow..qhigh) -> Y(0..15);   for 4-bit
+    // X = scale*Y + offset; 
+    // Y = (X-offset)/scale = (X-qlow)/(qhigh-qlow) * 16.0.
+
+    if (nbits == 4)
+        *scale = (qhigh - qlow) / 16.0;
+    else                        // nbits = 8
+        *scale = (qhigh - qlow) / 256.0;
+    *offset = qlow;
+
+    free(datacopy);
+    return 0;
+}
+
 /******************************/
 int floatcmp(const void *a, const void *b)
 {
-    const float *da = (const float *) a;
-    const float *db = (const float *) b;
-    return (*da > *db) - (*da < *db);
+  
+  const float *da = (const float *) a;
+  const float *db = (const float *) b;
+  return (*da > *db) - (*da < *db);
+  
+  /*
+    if (*((float*)a) > *((float*)b))
+      return 1;
+    else
+      return -1;
+  */
 }
 
 /******************************/

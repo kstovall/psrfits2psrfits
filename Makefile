@@ -1,7 +1,7 @@
 # Other include directory (for CFITSIO, libsla, which is in PRESTO)
-OTHERINCLUDE = -I/usr/include/cfitsio -I/home.local/phil/svn/pdev/include
+OTHERINCLUDE = -I/usr/include/cfitsio #-I/home.local/phil/svn/pdev/include
 # Other link directory (for CFITSIO)
-OTHERLINK = -L/usr/local/lib -L/home.local/phil/svn/pdev/libs -lcfitsio
+OTHERLINK = -L/usr/lib64 -lcfitsio #-L/home.local/phil/svn/pdev/libs 
 
 # Source directory
 SRCDIR = $(shell pwd)
@@ -10,8 +10,38 @@ SRCDIR = $(shell pwd)
 CC = gcc
 CFLAGS = $(OTHERINCLUDE) -DSRCDIR=\"$(SRCDIR)\"\
 	-D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64\
-	-g -Wall -W -std=c99 -O
-#	-O3 -Wall -W -g
+	-g -Wall -W -O1 \
+-fthread-jumps \
+-fcrossjumping \
+-foptimize-sibling-calls \
+-fcse-follow-jumps  \
+-fcse-skip-blocks \
+-fgcse  \
+-fgcse-lm \
+-fexpensive-optimizations \
+-fstrength-reduce \
+#-fre-run-cse-after-loop  \
+-frerun-loop-opt \
+-fcaller-saves \
+-fpeephole2 \
+-fschedule-insns \
+-fschedule-insns2 \
+-fsched-interblock \
+-fsched-spec \
+-fregmove \
+-fstrict-aliasing \
+-fdelete-null-pointer-checks \
+-freorder-blocks  \
+-freorder-functions \
+-falign-functions  \
+-falign-jumps \
+-falign-loops  \
+-falign-labels \
+-ftree-vrp \
+-ftree-pre \
+-finline-functions \
+-funswitch-loops \
+-fgcse-after-reload
 
 CLINKFLAGS = $(CFLAGS)
 

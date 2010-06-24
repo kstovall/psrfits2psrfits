@@ -296,7 +296,7 @@ int psrfits_write_subint(struct psrfits *pf)
     //fits_read_key(pf->fptr, TINT, "NAXIS2", &dummy, NULL, status);
     //fprintf(stderr,"In psrfits write, before col writing, NAXIS2: %d status; %d\n",dummy,*status);
 
-    fprintf(stderr, "tsubint: %f  offs_sub: %f\n", sub->tsubint, sub->offs);
+    //fprintf(stderr, "tsubint: %f  offs_sub: %f\n", sub->tsubint, sub->offs);
 
     fits_write_col(pf->fptr, TDOUBLE, 1, row, 1, 1, &(sub->tsubint), status);
     fits_write_col(pf->fptr, TDOUBLE, 2, row, 1, 1, &(sub->offs), status);

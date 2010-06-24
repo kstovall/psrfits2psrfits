@@ -9,15 +9,8 @@
 #include "psrfits.h"
 #include "rescale.h"
 
-//If this flag is 1, and 4-bit conversion is requested, the scaling will be
-//done for 4-bit conversion, but scaled data will be written out as 8-bit
-#define DEBUG 0
-
-//If this flag is 1, offsets & scales are written to a text file
-#define DUMP 0
-
 //If this flag is 1, various parts of the code will get timed
-#define DOTIME 0
+#define DOTIME 1
 
 #define GB 1073741824
 #define KB 1024
@@ -27,20 +20,25 @@ int main(int argc, char *argv[])
     int numfiles, ii, numrows, rownum, ichan, itsamp, datidx;
     int spec_per_row, status, maxrows;
     unsigned long int maxfilesize;
-    float offset, scale, datum, packdatum, maxval, fulltsubint;
-    float *datachunk;
-    FILE **infiles, *scaledump, *offsetdump;
+    float datum, packdatum, maxval, fulltsubint;
+    float *offsets, *scales;
+    short int **datachunks;
+    FILE **infiles;
     struct psrfits pfin, pfout;
     Cmdline *cmd;
     fitsfile *infits, *outfits;
-    char outfilename[128], templatename[128], tform[8], scalename[128], offsetname[128];
+    char outfilename[128], templatename[128], tform[8], tdim[16], tunit[8];
     char *pc1, *pc2;
-    int first = 1, dummy = 0, nclipped;
+    int first = 1, dummy = 0; //, nclipped;
     short int *inrowdata;
-    unsigned char *outrowdata;
     time_t t0, t1, t2;
+    unsigned char* outrowdata;
 
-    t0 = time(NULL);
+    if (DOTIME) {
+      t0 = time(NULL);
+      fprintf(stderr, "Program start: %s",ctime(&t0));
+    }
+
 
     if (argc == 1) {
         Program = argv[0];
@@ -52,7 +50,7 @@ int main(int argc, char *argv[])
     numfiles = cmd->argc;
     infiles = (FILE **) malloc(numfiles * sizeof(FILE *));
 
-    //Set the max. total size (in bytes) of all rows in an output file,
+    //Set the max. total size (in bytes) of all rows in an outut file,
     //leaving some room for PSRFITS header
     maxfilesize = (unsigned long int)(cmd->numgb * GB);
     maxfilesize = maxfilesize - 1000*KB;
@@ -62,16 +60,11 @@ int main(int argc, char *argv[])
     showOptionValues();
 #endif
 
-    if (DUMP) {
-      scaledump = fopen("scale.dump", "w");
-      offsetdump = fopen("offset.dump","w");
-    }
-
     printf("\n         PSRFITS 16-bit to 4-bit Conversion Code\n");
     printf("         by J. Deneva, S. Ransom, & S. Chatterjee\n\n");
 
     // Open the input files
-    status = 0;                 //fits_close segfaults if this is not initialized
+    status = 0;  //fits_close segfaults if this is not initialized
     printf("Reading input data from:\n");
     for (ii = 0; ii < numfiles; ii++) {
         printf("  '%s'\n", cmd->argv[ii]);
@@ -111,85 +104,80 @@ int main(int argc, char *argv[])
             pfin.sub.dat_scales =
                 (float *) malloc(sizeof(float) * pfin.hdr.nchan * pfin.hdr.npol);
             //first is set to 0 after data buffer allocation further below
+
+	    if (DOTIME) {
+	      t1 = time(NULL);
+	      fprintf(stderr, "End of initialization: %s",ctime(&t1));
+	    }
         }
 
         infits = pfin.fptr;
         spec_per_row = pfin.hdr.nsblk;
+	//fprintf(stderr,"spec_per_row: %d\n",spec_per_row);
 	fits_read_key(infits, TINT, "NAXIS2", &dummy, NULL, &status);
 	pfin.tot_rows = dummy;
         numrows = dummy;
 
-	if (DOTIME) {
-	  t1 = time(NULL);
-	  fprintf(stderr, "Initialization: %f s\n",t1-t0);
-	}
+	sprintf(templatename, "%s.template.fits",cmd->outfile);
 
-	//If dealing with 1st input file, create output template
+	//If dealing with 1st input file, check if a template exists,
+	//and create one if it doesn't. 
 	if (ii == 0) {
-	  sprintf(templatename, "%s.template.fits",cmd->outfile);
-	  fits_create_file(&outfits, templatename, &status);
-	  //fprintf(stderr,"pfin.basefilename: %s\n", pfin.basefilename);
-	  //fprintf(stderr,"status: %d\n", status);
-	  
-	  //Instead of copying HDUs one by one, can move to the SUBINT
-	  //HDU, and copy all the HDUs preceding it
-	  fits_movnam_hdu(infits, BINARY_TBL, "SUBINT", 0, &status);
-	  fits_copy_file(infits, outfits, 1, 0, 0, &status);
-	  
-	  //Copy the SUBINT table header
-	  fits_copy_header(infits, outfits, &status);
-	  fits_flush_buffer(outfits, 0, &status);
-	  
-	  //Set NAXIS2 in the output SUBINT table to 0 b/c we haven't 
-	  //written any rows yet
-	  dummy = 0;
-	  fits_update_key(outfits, TINT, "NAXIS2", &dummy, NULL, &status);
-	  
-	  //Edit the NBITS key
-	  if (DEBUG) {
-	    dummy = 8;
-	    fits_update_key(outfits, TINT, "NBITS", &dummy, NULL, &status);
-	  } else {
-	    fits_update_key(outfits, TINT, "NBITS", &(cmd->numbits), NULL,
-			    &status);
+	  fits_open_file(&outfits, templatename, READONLY, &status);
+
+	  if(status == 0) {
+	    fits_movnam_hdu(outfits, BINARY_TBL, "SUBINT", 0, &status);
+	    fits_read_key(outfits, TINT, "NAXIS1", &dummy, NULL, &status);
+	    fits_close_file(outfits, &status);  
 	  }
-	  
-	  //Edit the TFORM17 column: # of data bytes per row 
-	  //fits_get_colnum(outfits,1,"DATA",&dummy,&status);
-	  if (DEBUG)
-	    sprintf(tform, "%dB",
-		    pfin.hdr.nsblk * pfin.hdr.nchan * pfin.hdr.npol);
-	  else
-	    sprintf(tform, "%dB", pfin.hdr.nsblk * pfin.hdr.nchan *
-		    pfin.hdr.npol * cmd->numbits / 8);
-	  
-	  fits_update_key(outfits, TSTRING, "TTYPE17", "DATA", NULL, &status);
-	  fits_update_key(outfits, TSTRING, "TFORM17", tform, NULL, &status);
-	  
-	  //Edit NAXIS1: row width in bytes
-	  fits_read_key(outfits, TINT, "NAXIS1", &dummy, NULL, &status);
-	  if (DEBUG) {
-	    dummy = dummy - pfin.hdr.nsblk * pfin.hdr.nchan *
-	      pfin.hdr.npol * (pfin.hdr.nbits - 8) / 8;
-	  } else {
-	    dummy = dummy - pfin.hdr.nsblk * pfin.hdr.nchan *
-	      pfin.hdr.npol * (pfin.hdr.nbits - cmd->numbits) / 8;
+	  else {
+	    status = 0; //fits_create_file fails if this is not set to zero
+	    fits_create_file(&outfits, templatename, &status);
+
+	    //Instead of copying HDUs one by one, can move to the SUBINT
+	    //HDU, and copy all the HDUs preceding it
+	    fits_movnam_hdu(infits, BINARY_TBL, "SUBINT", 0, &status);
+	    fits_copy_file(infits, outfits, 1, 0, 0, &status);
+
+	    //Copy the SUBINT table header
+	    fits_copy_header(infits, outfits, &status);
+	    fprintf(stderr,"After fits_copy_header, status: %d\n", status);
+	    fits_flush_buffer(outfits, 0, &status);
+	    
+	    //Set NAXIS2 in the output SUBINT table to 0 b/c we haven't 
+	    //written any rows yet
+	    dummy = 0;
+	    fits_update_key(outfits, TINT, "NAXIS2", &dummy, NULL, &status);
+	    
+	    //Edit the NBITS key
+	    fits_update_key(outfits, TINT, "NBITS", &(cmd->numbits), NULL, &status);
+	    //Edit the TFORM17 column: # of data bytes per row 
+	    //fits_get_colnum(outfits,1,"DATA",&dummy,&status);
+	    sprintf(tform, "%dB", pfin.hdr.nsblk * pfin.hdr.nchan * pfin.hdr.npol * cmd->numbits / 8);
+
+	    //Delete and recreate col 17 for data
+	    fits_read_key(outfits, TSTRING, "TDIM17", tdim, NULL, &status);
+	    fits_read_key(outfits, TSTRING, "TUNIT17", tunit, NULL, &status);
+	    fits_delete_col(outfits, 17, &status);
+	    fits_insert_col(outfits, 17, "DATA", tform, &status);
+	    fits_update_key(outfits, TSTRING, "TDIM17", tdim, NULL, &status);
+	    fits_update_key(outfits, TSTRING, "TUNIT17", tunit, NULL, &status);
+
+	    fits_read_key(outfits, TINT, "NAXIS1", &dummy, NULL, &status);
+
+	    fits_close_file(outfits, &status);  
+
+	    if (DOTIME) {
+	      t2 = time(NULL);
+	      fprintf(stderr, "End of template construction: %s",ctime(&t2));
+	    }
 	  }
-	  fits_update_key(outfits, TINT, "NAXIS1", &dummy, NULL, &status);
-	  
+
 	  //Set the max # of rows per file, based on the requested 
 	  //output file size
 	  maxrows = maxfilesize / dummy;
-	  //fprintf(stderr,"maxrows: %d\n",maxrows);
-
-	  fits_close_file(outfits, &status);
-	  
+	  //fprintf(stderr,"maxrows: %d dummy: %d pfin.sub.bytes_per_subint: %d\n",maxrows, dummy, pfin.sub.bytes_per_subint);
 	  rownum = 0;
-	}
-	
-	if (DOTIME) {
-	  t2 = time(NULL);
-	  fprintf(stderr, "Template: %f s\n",t2-t1);
 	}
 
         while (psrfits_read_subint(&pfin, first) == 0) {
@@ -222,7 +210,7 @@ int main(int argc, char *argv[])
 	    fits_create_template(&outfits, outfilename, templatename, &status);
 	    //fprintf(stderr,"After fits_create_template, status: %d\n",status);
 	    fits_close_file(outfits, &status);
-	    
+
 	    //Now reopen the file so that the pfout structure is initialized
 	    pfout.status = 0;
 	    pfout.initialized = 0;
@@ -258,103 +246,92 @@ int main(int argc, char *argv[])
 
             if (first) {
                 //Allocate scaling buffer and output buffer
-                datachunk = gen_fvect(spec_per_row);
-                outrowdata = gen_bvect(pfout.sub.bytes_per_subint);
+                datachunks = malloc(pfout.hdr.nchan * sizeof(short int*));
+		for (ichan=0; ichan < pfout.hdr.nchan; ichan++)
+		  datachunks[ichan] = malloc(spec_per_row * sizeof(short int));
 
+		scales = gen_fvect(pfout.hdr.nchan);
+		offsets = gen_fvect(pfout.hdr.nchan);
+                outrowdata = gen_bvect(pfout.sub.bytes_per_subint);
                 first = 0;
             }
-            pfout.sub.data = outrowdata;
-
+	    //fprintf(stderr, "pfout.sub.bytes_per_subint: %d\n",pfout.sub.bytes_per_subint);
+	    pfout.sub.data = outrowdata;
             inrowdata = (short int *) pfin.sub.data;
-            nclipped = 0;
+            //nclipped = 0;
 
-	    if (DOTIME)
+	    if (DOTIME) {
 	      t1 = time(NULL);
+	      fprintf(stderr,"Start of row conversion: %s",ctime(&t1));
+	    }
+
+	    // Populate datachunks[] by picking out all time samples for ichan
+	    for (itsamp = 0; itsamp < spec_per_row; itsamp++) {
+	      for (ichan = 0; ichan < pfout.hdr.nchan * pfout.hdr.npol; ichan++) {
+		datachunks[ichan][itsamp] = inrowdata[ichan + itsamp * pfout.hdr.nchan * pfout.hdr.npol];
+	      }
+	    }
 
             // Loop over all the channels:
             for (ichan = 0; ichan < pfout.hdr.nchan * pfout.hdr.npol; ichan++) {
-                // Populate datachunk[] by picking out all time samples for ichan
-                for (itsamp = 0; itsamp < spec_per_row; itsamp++)
-                    datachunk[itsamp] = (float) (inrowdata[ichan + itsamp *
-                                                           pfout.hdr.nchan *
-                                                           pfout.hdr.npol]);
-
-                // Compute the statistics here, and put the offsets and scales in
-                // pf.sub.dat_offsets[] and pf.sub.dat_scales[]
-
-                if (rescale(datachunk, spec_per_row, cmd->numbits, &offset, &scale)
-                    != 0) {
-                    printf("Rescale routine failed!\n");
-                    return (-1);
+	      // Compute the statistics here, and put the offsets and scales in
+	      // pf.sub.dat_offsets[] and pf.sub.dat_scales[]
+	      
+	      if (rescale2(datachunks[ichan], spec_per_row, cmd->numbits, &(pfout.sub.dat_offsets[ichan]), &(pfout.sub.dat_scales[ichan])) != 0) {
+		  printf("Rescale routine failed!\n");
+		  return (-1);
                 }
-
-		if (DUMP) {
-		  fprintf(scaledump, "%f ", scale);
-		  fprintf(offsetdump, "%f ", offset);
-		}
-
-                pfout.sub.dat_offsets[ichan] = offset;
-                pfout.sub.dat_scales[ichan] = scale;
-
-                // Since we have the offset and scale ready, rescale the data:
-                for (itsamp = 0; itsamp < spec_per_row; itsamp++) {
-                    datum = (scale == 0.0) ? 0.0 :
-                        roundf((datachunk[itsamp] - offset) / scale);
-                    if (datum < 0.0) {
-                        datum = 0;
-                        nclipped++;
-                    } else if (datum > maxval) {
-                        datum = maxval;
-                        nclipped++;
-                    }
-
-                    inrowdata[ichan + itsamp * pfout.hdr.nchan * pfout.hdr.npol] =
-                        (short int) datum;
-
-                }
-                // Now inrowdata[ichan] contains rescaled ints.
-            } //end loop over ichan
-
-	    if (DUMP) {
-	      fprintf(scaledump, "\n", scale);
-	      fprintf(offsetdump, "\n", offset);
 	    }
 
+	    // Since we have the offset and scale ready, rescale the data:
+	    for (itsamp = 0; itsamp < spec_per_row; itsamp++) {
+	      for (ichan = 0; ichan < pfout.hdr.nchan * pfout.hdr.npol; ichan++) {
+		datum = (pfout.sub.dat_scales[ichan] == 0.0) ? 0.0 : roundf(((float)datachunks[ichan][itsamp] - pfout.sub.dat_offsets[ichan]) / pfout.sub.dat_scales[ichan]);
+		//datum = (datum > maxval) ? maxval : datum;
+		
+		if (datum < 0.0) {
+		  datum = 0;
+		  //nclipped++;
+		} else if (datum > maxval) {
+		  datum = maxval;
+		  //nclipped++;
+		}
+		
+		inrowdata[ichan + itsamp * pfout.hdr.nchan * pfout.hdr.npol] = (short int) datum;
+		
+	      } //end loop over ichan
+	    } //end loop over itsamp
+	    
             // Then do the conversion and store the
             // results in pf.sub.data[] 
-            if (cmd->numbits == 8 || DEBUG) {
-                for (itsamp = 0; itsamp < spec_per_row; itsamp++) {
-                    datidx = itsamp * pfout.hdr.nchan * pfout.hdr.npol;
-                    for (ichan = 0; ichan < pfout.hdr.nchan * pfout.hdr.npol;
-                         ichan++, datidx++) {
-                        pfout.sub.data[datidx] = (unsigned char) inrowdata[datidx];
-                    }
-                }
-            } else if (cmd->numbits == 4) {
-                for (itsamp = 0; itsamp < spec_per_row; itsamp++) {
-                    datidx = itsamp * pfout.hdr.nchan * pfout.hdr.npol;
-                    for (ichan = 0; ichan < pfout.hdr.nchan * pfout.hdr.npol;
-                         ichan += 2, datidx += 2) {
-
-                        packdatum = inrowdata[datidx] * 16 + inrowdata[datidx + 1];
-                        pfout.sub.data[datidx / 2] = (unsigned char) packdatum;
-                    }
-                }
-            } else {
-                fprintf(stderr, "Only 4 or 8-bit output formats supported.\n");
-                fprintf(stderr, "Bits per sample requested: %d\n", cmd->numbits);
-                exit(1);
-            }
-
-
-            //pfout.sub.offs = (pfout.tot_rows+0.5) * pfout.sub.tsubint;
-            fprintf(stderr, "nclipped: %d fraction clipped: %f\n", nclipped,
-                    (float) nclipped / (pfout.hdr.nchan * pfout.hdr.npol *
-                                        pfout.hdr.nsblk));
-
+	    if (cmd->numbits == 4) {
+	      for (itsamp = 0; itsamp < spec_per_row; itsamp++) {
+		datidx = itsamp * pfout.hdr.nchan * pfout.hdr.npol;
+		for (ichan = 0; ichan < pfout.hdr.nchan * pfout.hdr.npol;
+		     ichan += 2, datidx += 2) {
+		  
+		  //packdatum = inrowdata[datidx] * 16 + inrowdata[datidx + 1];
+		  packdatum = (inrowdata[datidx] << 4) | inrowdata[datidx + 1];
+		  pfout.sub.data[datidx / 2] = (unsigned char) packdatum;
+		}
+	      }
+	    } else if (cmd->numbits == 8) {
+	      for (itsamp = 0; itsamp < spec_per_row; itsamp++) {
+		datidx = itsamp * pfout.hdr.nchan * pfout.hdr.npol;
+		for (ichan = 0; ichan < pfout.hdr.nchan * pfout.hdr.npol;
+		     ichan++, datidx++) {
+		  pfout.sub.data[datidx] = (unsigned char) inrowdata[datidx];
+		}
+	      }
+	    } else {
+	      fprintf(stderr, "Only 4 or 8-bit output formats supported.\n");
+	      fprintf(stderr, "Bits per sample requested: %d\n", cmd->numbits);
+	      exit(1);
+	    }
+	    
 	    if (DOTIME) {
 	      t2 = time(NULL);
-	      fprintf(stderr, "Conversion: %d s\n",t2-t1);
+	      fprintf(stderr, "End of row conversion: %s",ctime(&t2));
 	    }
 
             // Now write the row. 
@@ -371,9 +348,7 @@ int main(int argc, char *argv[])
 	    
 	    if (DOTIME) {
 	      t1 = time(NULL);
-	      fprintf(stderr, "Writing row: %d s\n",t1-t2);
-	      fprintf(stderr, "Read/write loop iteration total: %d s\n",t1-t0);
-	      t0 = t1;
+	      fprintf(stderr, "End of row writing: %s",ctime(&t1));
 	    }
 
         }
@@ -382,15 +357,13 @@ int main(int argc, char *argv[])
         fits_close_file(infits, &status);
     }
 
-    if(DUMP) {
-      fclose(scaledump);
-      fclose(offsetdump);
-    }
-
     fits_close_file(outfits, &status);
 
     // Free the structure arrays too...
-    free(datachunk);
+    for (ichan = 0; ichan < pfout.hdr.nchan * pfout.hdr.npol; ichan++)
+      free(datachunks[ichan]);
+    free(datachunks);
+
     free(infiles);
 
     free(pfin.sub.dat_freqs);
