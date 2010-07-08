@@ -28,7 +28,7 @@ int main(int argc, char *argv[])
     Cmdline *cmd;
     fitsfile *infits, *outfits;
     char outfilename[128], templatename[128], tform[8], tdim[16], tunit[8];
-    char *pc1, *pc2;
+    char *pc1, *pc2, *ibeam;
     int first = 1, dummy = 0; //, nclipped;
     short int *inrowdata;
     time_t t0, t1, t2;
@@ -89,6 +89,12 @@ int main(int argc, char *argv[])
         pfin.status = 0;
         //(end of code taken from psrfits2fil)
 
+	//Get the beam number from the file name
+	ibeam = strrchr(cmd->argv[ii], 'b');
+	ibeam = ibeam+1;
+	*(ibeam+1) = 0;  //terminate string
+       	//fprintf(stderr,"ibeam: %s\n", ibeam);
+
         //Open the existing psrfits file
         if (psrfits_open(&pfin, READONLY) != 0) {
             fprintf(stderr, "error opening file\n");
@@ -134,16 +140,16 @@ int main(int argc, char *argv[])
 	    status = 0; //fits_create_file fails if this is not set to zero
 	    fits_create_file(&outfits, templatename, &status);
 
-	    //Instead of copying HDUs one by one, can move to the SUBINT
-	    //HDU, and copy all the HDUs preceding it
+	    //Instead of copying HDUs one by one, move to the SUBINT HDU
+	    //and copy all the HDUs preceding it
 	    fits_movnam_hdu(infits, BINARY_TBL, "SUBINT", 0, &status);
 	    fits_copy_file(infits, outfits, 1, 0, 0, &status);
 
 	    //Copy the SUBINT table header
 	    fits_copy_header(infits, outfits, &status);
-	    fprintf(stderr,"After fits_copy_header, status: %d\n", status);
+	    //fprintf(stderr,"After fits_copy_header, status: %d\n", status);
 	    fits_flush_buffer(outfits, 0, &status);
-	    
+	    	    
 	    //Set NAXIS2 in the output SUBINT table to 0 b/c we haven't 
 	    //written any rows yet
 	    dummy = 0;
@@ -163,7 +169,12 @@ int main(int argc, char *argv[])
 	    fits_update_key(outfits, TSTRING, "TDIM17", tdim, NULL, &status);
 	    fits_update_key(outfits, TSTRING, "TUNIT17", tunit, NULL, &status);
 
+	    //Need this to set the max. # of rows in output
 	    fits_read_key(outfits, TINT, "NAXIS1", &dummy, NULL, &status);
+
+	    //Add key for beam number
+	    fits_movabs_hdu(outfits, 1, NULL, &status);
+	    fits_update_key(outfits, TSTRING, "IBEAM", ibeam, "Beam number for multibeam systems", &status);
 
 	    fits_close_file(outfits, &status);  
 

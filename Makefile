@@ -6,6 +6,9 @@ OTHERLINK = -L/usr/lib64 -lcfitsio #-L/home.local/phil/svn/pdev/libs
 # Source directory
 SRCDIR = $(shell pwd)
 
+#BINDIR = /home/deneva/bin64
+BINDIR = .
+
 # Which C compiler
 CC = gcc
 CFLAGS = $(OTHERINCLUDE) -DSRCDIR=\"$(SRCDIR)\"\
@@ -56,7 +59,7 @@ CLIG =/home/deneva/local/bin64/clig
 OBJS1 = vectors.o write_psrfits.o rescale.o read_psrfits.o
 
 psrfits2psrfits: psrfits2psrfits.o psrfits2psrfits_cmd.o $(OBJS1)
-	$(CC) $(CLINKFLAGS) -o $@ psrfits2psrfits.o psrfits2psrfits_cmd.o $(OBJS1) -lm $(OTHERLINK)
+	$(CC) $(CLINKFLAGS) -o $(BINDIR)/$@ psrfits2psrfits.o psrfits2psrfits_cmd.o $(OBJS1) -lm $(OTHERLINK)
 
 # Default indentation is K&R style with no-tabs,
 # an indentation level of 4, and a line-length of 85
