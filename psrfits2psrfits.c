@@ -27,7 +27,7 @@ int main(int argc, char *argv[])
     struct psrfits pfin, pfout;
     Cmdline *cmd;
     fitsfile *infits, *outfits;
-    char outfilename[128], templatename[128], tform[8], tdim[16], tunit[8];
+    char outfilename[128], templatename[128], tformstring[16], tdim[16], tunit[16];
     char *pc1, *pc2, *ibeam;
     int first = 1, dummy = 0; //, nclipped;
     short int *inrowdata;
@@ -157,17 +157,28 @@ int main(int argc, char *argv[])
 	    
 	    //Edit the NBITS key
 	    fits_update_key(outfits, TINT, "NBITS", &(cmd->numbits), NULL, &status);
-	    //Edit the TFORM17 column: # of data bytes per row 
-	    //fits_get_colnum(outfits,1,"DATA",&dummy,&status);
-	    sprintf(tform, "%dB", pfin.hdr.nsblk * pfin.hdr.nchan * pfin.hdr.npol * cmd->numbits / 8);
-
 	    //Delete and recreate col 17 for data
 	    fits_read_key(outfits, TSTRING, "TDIM17", tdim, NULL, &status);
 	    fits_read_key(outfits, TSTRING, "TUNIT17", tunit, NULL, &status);
 	    fits_delete_col(outfits, 17, &status);
-	    fits_insert_col(outfits, 17, "DATA", tform, &status);
+	    //fprintf(stderr,"after fits_delete_col, status: %d\n", status);
+	    //fits_flush_buffer(outfits, 0, &status);
+
+	    //Edit the TFORM17 column: # of data bytes per row 
+	    //fits_get_colnum(outfits,1,"DATA",&dummy,&status);
+	    sprintf(tformstring, "%dB", pfin.hdr.nsblk * pfin.hdr.nchan * pfin.hdr.npol * cmd->numbits / 8);
+	    //fprintf(stderr,"pfin.hdr.nsblk: %d pfin.hdr.nchan: %d pfin.hdr.npol: %d cmd->numbit: %d tformstring: %s\n", pfin.hdr.nsblk, pfin.hdr.nchan, pfin.hdr.npol, cmd->numbits, tformstring);
+	    fits_insert_col(outfits, 17, "DATA", tformstring, &status);
+	    //fprintf(stderr,"after fits_insert_col, status: %d\n", status);
+	    //fits_flush_buffer(outfits, 0, &status);
+
 	    fits_update_key(outfits, TSTRING, "TDIM17", tdim, NULL, &status);
+	    //fprintf(stderr,"after fits_update_key, status: %d\n", status);
+	    fits_flush_buffer(outfits, 0, &status);
+
 	    fits_update_key(outfits, TSTRING, "TUNIT17", tunit, NULL, &status);
+	    //fprintf(stderr,"after fits_update_key, status: %d\n", status);
+	    fits_flush_buffer(outfits, 0, &status);
 
 	    //Need this to set the max. # of rows in output
 	    fits_read_key(outfits, TINT, "NAXIS1", &dummy, NULL, &status);
@@ -187,7 +198,7 @@ int main(int argc, char *argv[])
 	  //Set the max # of rows per file, based on the requested 
 	  //output file size
 	  maxrows = maxfilesize / dummy;
-	  //fprintf(stderr,"maxrows: %d dummy: %d pfin.sub.bytes_per_subint: %d\n",maxrows, dummy, pfin.sub.bytes_per_subint);
+	  fprintf(stderr,"maxrows: %d dummy: %d pfin.sub.bytes_per_subint: %d\n",maxrows, dummy, pfin.sub.bytes_per_subint);
 	  rownum = 0;
 	}
 
