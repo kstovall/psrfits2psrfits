@@ -198,7 +198,7 @@ int main(int argc, char *argv[])
 	  //Set the max # of rows per file, based on the requested 
 	  //output file size
 	  maxrows = maxfilesize / dummy;
-	  fprintf(stderr,"maxrows: %d dummy: %d pfin.sub.bytes_per_subint: %d\n",maxrows, dummy, pfin.sub.bytes_per_subint);
+	  //fprintf(stderr,"maxrows: %d dummy: %d pfin.sub.bytes_per_subint: %d\n",maxrows, dummy, pfin.sub.bytes_per_subint);
 	  rownum = 0;
 	}
 
@@ -268,8 +268,8 @@ int main(int argc, char *argv[])
 
             if (first) {
                 //Allocate scaling buffer and output buffer
-                datachunks = malloc(pfout.hdr.nchan * sizeof(short int*));
-		for (ichan=0; ichan < pfout.hdr.nchan; ichan++)
+                datachunks = malloc(pfout.hdr.nchan * pfout.hdr.npol * sizeof(short int*));
+		for (ichan=0; ichan < pfout.hdr.nchan * pfout.hdr.npol; ichan++) 
 		  datachunks[ichan] = malloc(spec_per_row * sizeof(short int));
 
 		scales = gen_fvect(pfout.hdr.nchan);
