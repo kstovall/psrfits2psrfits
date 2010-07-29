@@ -262,6 +262,7 @@ int psrfits_write_subint(struct psrfits *pf)
         nivals = nchan;
     else
         nivals = nchan * hdr->npol;
+
     mode = psrfits_obs_mode(hdr->obs_mode);
     if (mode == fold)
         out_nbytes = sub->bytes_per_subint / hdr->ds_freq_fact;

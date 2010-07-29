@@ -248,6 +248,7 @@ int main(int argc, char *argv[])
             maxval = pow(2, cmd->numbits) - 1;
 	    pfout.rows_per_file = maxrows;
 	    
+	    //fprintf(stderr, "pfout.hdr.npol: %d\n", pfout.hdr.npol);
             //fprintf(stderr, "maxval: %f\n", maxval);
 	    //fprintf(stderr, "pfout.rows_per_file: %d\n",pfout.rows_per_file);
 	    
@@ -256,11 +257,16 @@ int main(int argc, char *argv[])
             //fields in any of the psrfits table headers)
             pfout.hdr.ds_freq_fact = 1;
             pfout.hdr.ds_time_fact = 1;
+	    
+	    //Have to set this to 0 to convert Stokes data properly
+	    pfout.hdr.onlyI = 0;
 	  }
 
-            //Copy the subint struct from pfin to pfout, but correct 
-            //elements that are not the same 
+	  
+	  //Copy the subint struct from pfin to pfout, but correct 
+	  //elements that are not the same 
             pfout.sub = pfin.sub;       //this copies array pointers too
+	    //fprintf(stderr,"pfin.sub.dat_scales: %x pfout.sub.dat_scales: %x\n",pfin.sub.dat_scales,pfout.sub.dat_scales);
             pfout.sub.bytes_per_subint =
                 pfin.sub.bytes_per_subint * pfout.hdr.nbits / pfin.hdr.nbits;
             pfout.sub.dataBytesAlloced = pfout.sub.bytes_per_subint;
