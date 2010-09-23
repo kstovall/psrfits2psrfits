@@ -18,7 +18,7 @@
 int main(int argc, char *argv[])
 {
     int numfiles, ii, numrows, rownum, ichan, itsamp, datidx;
-    int spec_per_row, status, maxrows;
+    int spec_per_row, status, maxrows, tmp;
     unsigned long int maxfilesize;
     float datum, packdatum, maxval, fulltsubint;
     float *offsets, *scales;
@@ -223,13 +223,17 @@ int main(int argc, char *argv[])
 	  if ((ii == 0 && rownum == 1) || pfout.rownum == maxrows) {
 	    //Create new output file from the template
 	    pfout.fnamedigits = pfin.fnamedigits;
-	    if(ii == 0)
+	    if(rownum == 1)
 	      pfout.filenum = pfin.filenum;
 	    else
 	      pfout.filenum++;
 	    
 	    sprintf(outfilename, "%s.%0*d.fits", cmd->outfile, pfout.fnamedigits, pfout.filenum);
 	    fits_create_template(&outfits, outfilename, templatename, &status);
+            fits_movnam_hdu(outfits, BINARY_TBL, "SUBINT", 0, &status);
+            tmp = rownum -1;
+            fits_update_key(outfits, TINT, "NSUBOFFS", &tmp, NULL, &status);
+
 	    //fprintf(stderr,"After fits_create_template, status: %d\n",status);
 	    fits_close_file(outfits, &status);
 

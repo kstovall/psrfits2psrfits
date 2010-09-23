@@ -340,7 +340,7 @@ int psrfits_write_subint(struct psrfits *pf)
 
     fits_write_col(pf->fptr, TSHORT, 18, row, 1, nstat, sub->stat, status);
 
-    // Flush the buffers if not finished with the file
+        // Flush the buffers if not finished with the file
     // Note:  this use is not entirely in keeping with the CFITSIO
     //        documentation recommendations.  However, manually 
     //        correcting NAXIS2 and using fits_flush_buffer()
